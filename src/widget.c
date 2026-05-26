@@ -547,7 +547,7 @@ static int indicate_connectivity_ws2812(void) {
     
     // 【纯净修复核心 2】：将 0 和 true，改为 2500 毫秒超时 和 false（非永久）。
     // 这样 2.5 秒后，主循环的 check_shared_led_timeouts() 就会合法地把它关掉。
-    int ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
+    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
     
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
     if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
