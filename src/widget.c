@@ -501,7 +501,8 @@ static int indicate_battery_enhanced(void) {
 static int indicate_connectivity_ws2812(void) {
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
-    int ret = 0; // 【修复】：声明提升
+    int ret = 0;
+    uint32_t duration_ms = 2500; // 默认状态持续时间
     pattern.type = ANIM_STATIC;
     
 #if !IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
@@ -514,29 +515,50 @@ static int indicate_connectivity_ws2812(void) {
         break;
     default: // ZMK_TRANSPORT_BLE
 #if IS_ENABLED(CONFIG_ZMK_BLE)
+        // 1. 获取当前的蓝牙通道 (Profile) 索引 (通常是 0 到 4)
+        uint8_t profile_index = zmk_ble_active_profile_index();
+
+        // 2. 根据通道分配颜色 (参考内部 lut: 1=红, 2=绿, 3=黄, 4=蓝, 5=品红)
+        switch (profile_index) {
+            case 0: color_idx = 2; break; // Channel 0 -> 绿色
+            case 1: color_idx = 1; break; // Channel 1 -> 红色
+            case 2: color_idx = 4; break; // Channel 2 -> 蓝色
+            case 3: color_idx = 3; break; // Channel 3 -> 黄色 (备用)
+            case 4: color_idx = 5; break; // Channel 4 -> 品红 (备用)
+            default: color_idx = 7; break; // 超出预期的通道给白色
+        }
+
+        // 3. 根据连接状态设置动画类型与超时时间
         if (zmk_ble_active_profile_is_connected()) {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_CONNECTED;
-            LOG_INF("BLE connected indication");
+            // 连接成功：常亮 3 秒钟后熄灭
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+            duration_ms = 3000; 
+            LOG_INF("BLE Profile %d connected, color %s", profile_index, color_names[color_idx]);
         } else if (zmk_ble_active_profile_is_open()) {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_ADVERTISING;
+            // 广播中：呼吸光效。ZMK的默认广播超时通常为 60 秒，这里设定 10000ms（10秒）或你希望的时长
             pattern.type = ANIM_PULSE;
-            pattern.period_ms = 2000;
+            pattern.period_ms = 500; // 2秒完成一次呼吸循环
             pattern.start_color = color_idx;
-            LOG_INF("BLE advertising indication");
+            duration_ms = 10000; 
+            LOG_INF("BLE Profile %d advertising, pulsing %s", profile_index, color_names[color_idx]);
         } else {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_DISCONNECTED;
+            // 断开且未广播：短促闪烁警告
             pattern.type = ANIM_BLINK;
-            pattern.period_ms = 1000;
+            pattern.period_ms = 500;
             pattern.start_color = color_idx;
-            pattern.end_color = 0;
-            LOG_INF("BLE disconnected indication");
+            pattern.end_color = 0; // 黑/灭
+            duration_ms = 2500;
+            LOG_INF("BLE Profile %d disconnected, blinking %s", profile_index, color_names[color_idx]);
         }
 #endif
         break;
     }
 #elif IS_ENABLED(CONFIG_ZMK_SPLIT_BLE)
+    // 分体副键盘的连接状态保持原样，或你可以根据需要修改
     if (zmk_split_bt_peripheral_is_connected()) {
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_CONNECTED;
+        duration_ms = 3000;
         LOG_INF("Enhanced peripheral connected indication");
     } else {
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_DISCONNECTED;
@@ -544,13 +566,13 @@ static int indicate_connectivity_ws2812(void) {
         pattern.period_ms = 1000;
         pattern.start_color = color_idx;
         pattern.end_color = 0;
+        duration_ms = 2500;
         LOG_INF("Enhanced peripheral disconnected indication");
     }
 #endif
     
-    // 【纯净修复核心 2】：将 0 和 true，改为 2500 毫秒超时 和 false（非永久）。
-    // 这样 2.5 秒后，主循环的 check_shared_led_timeouts() 就会合法地把它关掉。
-    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
+    // 使用动态的 duration_ms 将状态提交给底层引擎
+    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, duration_ms, false);
     
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
     if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
