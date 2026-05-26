@@ -575,7 +575,7 @@ static int indicate_connectivity_ws2812(void) {
     ret = set_status_led(STATUS_CONNECTIVITY, color_idx, duration_ms, false);
     
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
-    if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
+    if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
         set_led_pattern(conn_led, &pattern);
     }
     
