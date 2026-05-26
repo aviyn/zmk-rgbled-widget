@@ -457,6 +457,7 @@ static int indicate_battery_enhanced(void) {
     uint8_t battery_level = zmk_battery_state_of_charge();
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
+    int ret = 0; // 【修复】：将 ret 的声明提升到函数顶部
     
     if (battery_level == 0) {
         color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MISSING;
@@ -497,6 +498,7 @@ static int indicate_battery_enhanced(void) {
 static int indicate_connectivity_ws2812(void) {
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
+    int ret = 0; // 【修复】：声明提升
     pattern.type = ANIM_STATIC;
     
 #if !IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
