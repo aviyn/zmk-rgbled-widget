@@ -269,6 +269,7 @@ static enum status_priority get_priority_for_status(enum status_type status_type
 
 static int set_status_led(enum status_type status_type, uint8_t color_idx, 
                          uint16_t duration_ms, bool persistent) {
+    LOG_WRN(">>> TRAP 1: status=%d, color=%d, timeout=%d, persist=%d", status_type, color_idx, duration_ms, persistent);
     uint8_t primary_led = get_primary_led_for_status(status_type);
     uint8_t priority = get_priority_for_status(status_type, color_idx);
     
@@ -457,6 +458,7 @@ static int indicate_battery_enhanced(void) {
     uint8_t battery_level = zmk_battery_state_of_charge();
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
+    int ret = 0; // 【修复】：将 ret 的声明提升到函数顶部
     
     if (battery_level == 0) {
         color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MISSING;
@@ -483,6 +485,8 @@ static int indicate_battery_enhanced(void) {
         pattern.start_color = color_idx;
     }
     
+    ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
+    
     LOG_INF("Enhanced battery indication: level %d%%, color %s, pattern %d", 
             battery_level, color_names[color_idx], pattern.type);
     
@@ -497,6 +501,7 @@ static int indicate_battery_enhanced(void) {
 static int indicate_connectivity_ws2812(void) {
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
+    int ret = 0; // 【修复】：声明提升
     pattern.type = ANIM_STATIC;
     
 #if !IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
@@ -545,7 +550,7 @@ static int indicate_connectivity_ws2812(void) {
     
     // 【纯净修复核心 2】：将 0 和 true，改为 2500 毫秒超时 和 false（非永久）。
     // 这样 2.5 秒后，主循环的 check_shared_led_timeouts() 就会合法地把它关掉。
-    int ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
+    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
     
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
     if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
@@ -830,6 +835,7 @@ static void check_shared_led_timeouts(void) {
         
         if (state->is_shared && state->share_end_time > 0 && 
             current_time >= state->share_end_time) {
+            LOG_WRN(">>> TRAP 3: Timeout Triggered for LED %d! Returning to base_color.", i);
             return_shared_led(i);
         }
     }
@@ -1201,6 +1207,8 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 #endif
 
         if (result_code == 0) {
+            LOG_WRN(">>> TRAP 2: MSGQ Received! color=%d, duration=%d, sleep=%d", 
+                blink.color, blink.duration_ms, blink.sleep_ms);
             if (blink.duration_ms > 0) {
                 LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color, blink.duration_ms);
 
