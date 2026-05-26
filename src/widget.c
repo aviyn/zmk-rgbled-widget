@@ -485,6 +485,8 @@ static int indicate_battery_enhanced(void) {
         pattern.start_color = color_idx;
     }
     
+    ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
+    
     LOG_INF("Enhanced battery indication: level %d%%, color %s, pattern %d", 
             battery_level, color_names[color_idx], pattern.type);
     
