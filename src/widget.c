@@ -1162,17 +1162,22 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
         return 0;
     }
 
+    indicate_battery();
     // check if we are in critical battery levels at state change, blink if we are
-    uint8_t battery_level = as_zmk_battery_state_changed(eh)->state_of_charge;
+    struct zmk_battery_state_changed *ev = as_zmk_battery_state_changed(eh);
+    
+    if (ev != NULL) {
+        uint8_t battery_level = ev->state_of_charge;
 
-    if (battery_level > 0 && battery_level <= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_CRITICAL) {
-        LOG_BATTERY(battery_level, CRITICAL);
+        if (battery_level > 0 && battery_level <= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_CRITICAL) {
+            LOG_BATTERY(battery_level, CRITICAL);
 
-        struct blink_item blink = {.duration_ms = CONFIG_RGBLED_WIDGET_BATTERY_BLINK_MS,
-                                   .color = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CRITICAL};
-        LOG_DBG("send a battery blink item from msgq, color %d, duration %d, bat level %d", blink.color,
-                    blink.duration_ms, battery_level);
-        k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+            struct blink_item blink = {.duration_ms = CONFIG_RGBLED_WIDGET_BATTERY_BLINK_MS,
+                                       .color = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CRITICAL};
+            LOG_DBG("send a battery blink item from msgq, color %d, duration %d, bat level %d", 
+                    blink.color, blink.duration_ms, battery_level);
+            k_msgq_put(&led_msgq, &blink, K_NO_WAIT);
+        }
     }
     return 0;
 }
