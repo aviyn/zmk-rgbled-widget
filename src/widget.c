@@ -1162,12 +1162,18 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
         return 0;
     }
 
-    indicate_battery();
-    // check if we are in critical battery levels at state change, blink if we are
-    struct zmk_battery_state_changed *ev = as_zmk_battery_state_changed(eh);
-    
-    if (ev != NULL) {
-        uint8_t battery_level = ev->state_of_charge;
+    // check the event source
+    bool is_usb_event = (as_zmk_usb_conn_state_changed(eh) != NULL);
+    struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
+    bool is_charging = zmk_usb_is_powered();
+
+    if (is_usb_event || is_charging) {
+        indicate_battery();
+    }
+
+        // check if we are in critical battery levels at state change, blink if we are
+    if (bat_ev != NULL && !is_charging) {
+        uint8_t battery_level = bat_ev->state_of_charge;
 
         if (battery_level > 0 && battery_level <= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_CRITICAL) {
             LOG_BATTERY(battery_level, CRITICAL);
