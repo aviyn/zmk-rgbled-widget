@@ -209,6 +209,46 @@ static const struct device *ws2812_dev = DEVICE_DT_GET(WS2812_NODE);
 #define CONFIG_RGBLED_WIDGET_BRIGHTNESS 64
 #endif
 
+// ==================== BT channel color ====================
+// 颜色索引参考：0=灭, 1=红, 2=绿, 3=黄, 4=蓝, 5=品红, 6=青, 7=白
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT0
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT0 2 // 默认绿色
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT1
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT1 1 // 默认红色
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT2
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT2 4 // 默认蓝色
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT3
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT3 3 // 默认黄色
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT4
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT4 5 // 默认品红
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_COLOR_BT_FALLBACK
+#define CONFIG_RGBLED_WIDGET_CONN_COLOR_BT_FALLBACK 7 // 默认品红
+#endif
+
+
+// ==================== BT channel duration ====================
+#ifndef CONFIG_RGBLED_WIDGET_CONN_ADV_DURATION_MS
+#define CONFIG_RGBLED_WIDGET_CONN_ADV_DURATION_MS 10000 // 广播中呼吸灯总持续时间
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_CONNECTED_DURATION_MS
+#define CONFIG_RGBLED_WIDGET_CONN_CONNECTED_DURATION_MS 3000 // 连接成功后常亮时间
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS
+#define CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS 3000 // 断开连接闪烁提示时间
+#endif
+
 // Global LED state array
 static struct led_state led_states[CONFIG_RGBLED_WIDGET_LED_COUNT] = {0};
 static struct led_rgb led_colors[CONFIG_RGBLED_WIDGET_LED_COUNT] = {0};
@@ -413,9 +453,9 @@ static void update_led_animation(uint8_t led_index) {
             struct led_rgb start_rgb, result_rgb;
             color_index_to_rgb(anim->start_color, &start_rgb);
             
-            uint8_t brightness = (uint8_t)(CONFIG_RGBLED_WIDGET_BRIGHTNESS * intensity);
-            result_rgb = start_rgb;
-            apply_brightness(&result_rgb, brightness);
+            result_rgb.r = (uint8_t)(start_rgb.r * intensity);
+            result_rgb.g = (uint8_t)(start_rgb.g * intensity);
+            result_rgb.b = (uint8_t)(start_rgb.b * intensity);
             
             led_colors[led_index] = result_rgb;
             ws2812_update_strip();
@@ -432,7 +472,7 @@ static void update_led_animation(uint8_t led_index) {
             color_index_to_rgb(anim->end_color, &end_rgb);
             
             rgb_interpolate(&start_rgb, &end_rgb, factor, &result_rgb);
-            apply_brightness(&result_rgb, CONFIG_RGBLED_WIDGET_BRIGHTNESS);
+            //apply_brightness(&result_rgb, CONFIG_RGBLED_WIDGET_BRIGHTNESS);
             
             led_colors[led_index] = result_rgb;
             ws2812_update_strip();
@@ -501,7 +541,8 @@ static int indicate_battery_enhanced(void) {
 static int indicate_connectivity_ws2812(void) {
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
-    int ret = 0; // 【修复】：声明提升
+    int ret = 0;
+    uint32_t duration_ms = 2500; // 默认状态持续时间
     pattern.type = ANIM_STATIC;
     
 #if !IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
@@ -514,46 +555,65 @@ static int indicate_connectivity_ws2812(void) {
         break;
     default: // ZMK_TRANSPORT_BLE
 #if IS_ENABLED(CONFIG_ZMK_BLE)
+        // 1. 获取当前的蓝牙通道 (Profile) 索引 (通常是 0 到 4)
+        uint8_t profile_index = zmk_ble_active_profile_index();
+
+        // 2. 根据通道分配颜色 (参考内部 lut: 1=红, 2=绿, 3=黄, 4=蓝, 5=品红)
+switch (profile_index) {
+            case 0: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT0; break;
+            case 1: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT1; break;
+            case 2: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT2; break;
+            case 3: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT3; break;
+            case 4: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT4; break;
+            default: color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_BT_FALLBACK; break; // 超出预期的通道 fallback 为白色
+        }
+
+        // 3. 根据连接状态设置动画类型与超时时间
         if (zmk_ble_active_profile_is_connected()) {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_CONNECTED;
-            LOG_INF("BLE connected indication");
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+            duration_ms = CONFIG_RGBLED_WIDGET_CONN_CONNECTED_DURATION_MS; 
+            LOG_INF("BLE Profile %d connected, color %s", profile_index, color_names[color_idx]);
         } else if (zmk_ble_active_profile_is_open()) {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_ADVERTISING;
             pattern.type = ANIM_PULSE;
-            pattern.period_ms = 2000;
+            pattern.period_ms = 500; 
             pattern.start_color = color_idx;
-            LOG_INF("BLE advertising indication");
+            duration_ms = CONFIG_RGBLED_WIDGET_CONN_ADV_DURATION_MS; 
+            LOG_INF("BLE Profile %d advertising, pulsing %s", profile_index, color_names[color_idx]);
         } else {
-            color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_DISCONNECTED;
+            // 断开且未广播：短促闪烁警告
             pattern.type = ANIM_BLINK;
-            pattern.period_ms = 1000;
+            pattern.period_ms = 500;
             pattern.start_color = color_idx;
-            pattern.end_color = 0;
-            LOG_INF("BLE disconnected indication");
+            pattern.end_color = 0; // 黑/灭
+            duration_ms = CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS;
+            LOG_INF("BLE Profile %d disconnected, blinking %s", profile_index, color_names[color_idx]);
         }
 #endif
         break;
     }
 #elif IS_ENABLED(CONFIG_ZMK_SPLIT_BLE)
+    // 分体副键盘的连接状态保持原样，或你可以根据需要修改
     if (zmk_split_bt_peripheral_is_connected()) {
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_CONNECTED;
+        duration_ms = CONFIG_RGBLED_WIDGET_CONN_CONNECTED_DURATION_MS;
         LOG_INF("Enhanced peripheral connected indication");
     } else {
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_DISCONNECTED;
         pattern.type = ANIM_BLINK;
-        pattern.period_ms = 1000;
+        pattern.period_ms = CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS;
         pattern.start_color = color_idx;
         pattern.end_color = 0;
+        duration_ms = 2500;
         LOG_INF("Enhanced peripheral disconnected indication");
     }
 #endif
     
-    // 【纯净修复核心 2】：将 0 和 true，改为 2500 毫秒超时 和 false（非永久）。
-    // 这样 2.5 秒后，主循环的 check_shared_led_timeouts() 就会合法地把它关掉。
-    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
+    // 使用动态的 duration_ms 将状态提交给底层引擎
+    ret = set_status_led(STATUS_CONNECTIVITY, color_idx, duration_ms, false);
     
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
-    if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
+    if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
         set_led_pattern(conn_led, &pattern);
     }
     
