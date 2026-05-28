@@ -1238,7 +1238,7 @@ static int led_capslock_listener_cb(const zmk_event_t *eh) {
     // 提取大写锁定状态（通过按位与判断 Bit 1 是否为 1）
     bool caps_on = (ev->indicators & ZMK_LED_CAPSLOCK_BIT) != 0;
     
-    uint8_t caps_led = CONFIG_RGBLED_WIDGET_CAPS_LED_INDEX;
+    uint8_t caps_led = CONFIG_RGBLED_WIDGET_CAPSLOCK_LED_INDEX;
     struct animation_state pattern = {0};
     
     if (caps_on) {
