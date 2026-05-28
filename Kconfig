@@ -269,6 +269,7 @@ endmenu
 config RGBLED_WIDGET_SHOW_CAPSLOCK
     bool "Enable Caps Lock Indicator"
     default y
+    select ZMK_HID_INDICATORS   # 【新增这一行】：强制 ZMK 开启内部的 HID 指示灯系统
     help
       Enable Caps Lock LED indicator on the central half.
 
