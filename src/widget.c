@@ -64,10 +64,11 @@ static void update_led_animation(uint8_t led_index);
 // Enhanced priority system
 enum status_priority {
     PRIORITY_CRITICAL_BATTERY = 0,  // Highest - never shareable
-    PRIORITY_CONNECTION_CHANGE = 1, // High - can interrupt sharing
-    PRIORITY_LAYER_CHANGE = 2,      // Medium - can use shared LEDs
-    PRIORITY_MANUAL_TRIGGER = 3,    // Normal
-    PRIORITY_AMBIENT = 4            // Lowest - always shareable
+    PRIORITY_CAPSLOCK = 1,          // High - can interrupt sharing
+    PRIORITY_CONNECTION_CHANGE = 2, // High - can interrupt sharing
+    PRIORITY_LAYER_CHANGE = 3,      // Medium - can use shared LEDs
+    PRIORITY_MANUAL_TRIGGER = 4,    // Normal
+    PRIORITY_AMBIENT = 5            // Lowest - always shareable
 };
 
 enum led_sharing_mode {
@@ -326,7 +327,7 @@ static enum status_priority get_priority_for_status(enum status_type status_type
     case STATUS_CONNECTIVITY:
         return PRIORITY_CONNECTION_CHANGE;
     case STATUS_CAPSLOCK:  
-        return PRIORITY_LAYER_CHANGE;
+        return PRIORITY_CAPSLOCK; 
     case STATUS_LAYER:
         return PRIORITY_LAYER_CHANGE;
     case STATUS_CUSTOM:
