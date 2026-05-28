@@ -1275,7 +1275,7 @@ static int led_capslock_listener_cb(const zmk_event_t *eh) {
             
             // 【新增找回逻辑】：大写关闭后，如果依然插着数据线，主动唤醒充电指示灯
   #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
-            if (zmk_usb_is_powered()) {
+            if (zmk_usb_is_powered() && zmk_battery_state_of_charge() < 99) {
                 indicate_battery(); 
             }
   #endif
