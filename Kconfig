@@ -275,7 +275,8 @@ config RGBLED_WIDGET_SHOW_CAPSLOCK
 
 config RGBLED_WIDGET_CAPSLOCK_LED_INDEX
     int "LED index for Caps Lock"
-    depends on RGBLED_WIDGET_SHOW_CAPS
+    depends on (RGBLED_WIDGET_SHOW_CAPSLOCK && RGBLED_WIDGET_SPATIAL_MAPPING)
+    range 0 3
     default 0
 
 # Layer indicator settings
