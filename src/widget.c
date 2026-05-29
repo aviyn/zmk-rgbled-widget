@@ -1193,14 +1193,14 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
     if (!initialized) {
         return 0;
     }
-
+    bool is_usb_event = (as_zmk_usb_conn_state_changed(eh) != NULL);
+    struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
+    bool is_charging = zmk_usb_is_powered();
     // ==================== 新增：EMA 低通滤波平滑监听 ====================
     #if IS_ENABLED(CONFIG_ZMK_SPLIT) && !IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
         static float smoothed_battery = -1.0f;       // 记录平滑后的内部真实值
         static uint8_t last_notified_level = 0;      // 记录上一次允许亮灯的展示值
-        
-        struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
-        
+
         if (bat_ev != NULL) {
             uint8_t current_level = bat_ev->state_of_charge;
             
@@ -1222,17 +1222,18 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
                 return 0; // 过滤掉底噪，继续装死
             }
             
-            // 更新记录，允许唤醒后续的灯光逻辑
+            // 更新记录，并修改 bat_ev 里的值，让后方的原生代码拿到平滑后的结果
             last_notified_level = display_level;
+            
+            // 【关键】覆盖原事件里的电量值，欺骗后方的原生逻辑
+            // 因为 eh 传进来是 const 的，但我们提取出来的 bat_ev 指针可以修改里面的内容
+            // 这样原生逻辑判定低电量时，用的就是我们平滑后的值
+            bat_ev->state_of_charge = display_level;
         }
         
     #endif
     // ===================================================================
 
-    // check the event source
-    bool is_usb_event = (as_zmk_usb_conn_state_changed(eh) != NULL);
-    struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
-    bool is_charging = zmk_usb_is_powered();
 
     if (is_usb_event || is_charging) {
         indicate_battery();
