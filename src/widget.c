@@ -1436,7 +1436,20 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 
     while (true) {
         struct blink_item blink = {0, 0, 0};
-        int result_code = k_msgq_get(&led_msgq, &blink, K_MSEC(100)); 
+        // 判断当前是否有活动任务：有任何非静态动画，或者有灯是亮着的
+        bool is_active = false;
+        #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
+            for (int i = 0; i < CONFIG_RGBLED_WIDGET_LED_COUNT; i++) {
+                if (led_states[i].anim.type != ANIM_STATIC || led_states[i].current_color != 0) {
+                    is_active = true;
+                    break;
+                }
+            }
+        #endif
+
+        // 动态心跳核心：忙时 100ms 保证帧率，闲时（黑屏）1000ms 保护电池
+        k_timeout_t tick_rate = is_active ? K_MSEC(100) : K_MSEC(1000);
+        int result_code = k_msgq_get(&led_msgq, &blink, tick_rate);
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
         check_shared_led_timeouts();
