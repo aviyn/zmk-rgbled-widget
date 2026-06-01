@@ -1198,39 +1198,34 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
     bool is_charging = zmk_usb_is_powered();
     // ==================== 新增：EMA 低通滤波平滑监听 ====================
     #if IS_ENABLED(CONFIG_ZMK_SPLIT) && !IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
-        static float smoothed_battery = -1.0f;       // 记录平滑后的内部真实值
-        static uint8_t last_notified_level = 0;      // 记录上一次允许亮灯的展示值
-
+        static float smoothed_battery = -1.0f;       
+        static uint8_t last_notified_level = 0;      
+        
         if (bat_ev != NULL) {
             uint8_t current_level = bat_ev->state_of_charge;
             
-            // 1. 初始化（第一次收到电量时，直接信任该值）
-            if (smoothed_battery < 0.0f) {
+            if (!is_charging) {
+                if (smoothed_battery < 0.0f) {
+                    smoothed_battery = (float)current_level;
+                    last_notified_level = current_level;
+                } else {
+                    smoothed_battery = (smoothed_battery * 0.9f) + ((float)current_level * 0.1f);
+                }
+                
+                uint8_t display_level = (uint8_t)(smoothed_battery + 0.5f);
+                
+                if (display_level == last_notified_level) {
+                    return 0; 
+                }
+                
+                last_notified_level = display_level;
+                bat_ev->state_of_charge = display_level; 
+            } else {
+                // 【充电状态】：允许数据随充电上涨，并同步内部 EMA 记忆
                 smoothed_battery = (float)current_level;
                 last_notified_level = current_level;
-            } else {
-                // 2. 核心：EMA 滤波计算
-                // 历史权重 90%，新值权重 10%。完美吸收发射瞬间拉低的“虚假掉电”
-                smoothed_battery = (smoothed_battery * 0.9f) + ((float)current_level * 0.1f);
             }
-            
-            // 3. 四舍五入，得出最终要用来显示的电量
-            uint8_t display_level = (uint8_t)(smoothed_battery + 0.5f);
-            
-            // 4. 拦截逻辑：只有当显示值“真的”发生了至少 1% 的平滑变化，或者电量极低时，才放行
-            if (display_level == last_notified_level) {
-                return 0; // 过滤掉底噪，继续装死
-            }
-            
-            // 更新记录，并修改 bat_ev 里的值，让后方的原生代码拿到平滑后的结果
-            last_notified_level = display_level;
-            
-            // 【关键】覆盖原事件里的电量值，欺骗后方的原生逻辑
-            // 因为 eh 传进来是 const 的，但我们提取出来的 bat_ev 指针可以修改里面的内容
-            // 这样原生逻辑判定低电量时，用的就是我们平滑后的值
-            bat_ev->state_of_charge = display_level;
         }
-        
     #endif
     // ===================================================================
 
