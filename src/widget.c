@@ -1436,7 +1436,8 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
         bool is_active = false;
         #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
             for (int i = 0; i < CONFIG_RGBLED_WIDGET_LED_COUNT; i++) {
-                if (led_states[i].anim.type != ANIM_STATIC || led_states[i].current_color != 0) {
+                if (led_states[i].anim.type != ANIM_STATIC || 
+                    led_states[i].share_end_time > 0) {
                     is_active = true;
                     break;
                 }
