@@ -39,6 +39,12 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
+// External power control for WS2812 strip (optional, depending on hardware setup)
+#include <drivers/ext_power.h>
+
+#define EXT_POWER_IDLE_TIMEOUT_MS 15000 // 15秒无光自动断电
+#define EXT_POWER_SETTLE_MS 10          // 10ms 物理通电预热时间，防止丢帧
+
 // Access CAPSLOCK status
 #ifndef ZMK_LED_CAPSLOCK_BIT
 #define ZMK_LED_CAPSLOCK_BIT BIT(1)
@@ -1419,34 +1425,79 @@ ZMK_LISTENER(led_layer_listener, led_layer_listener_cb);
 ZMK_SUBSCRIPTION(led_layer_listener, zmk_layer_state_changed);
 #endif // SHOW_LAYER_CHANGE
 
+static const struct device *ext_power_dev = NULL;
+static struct k_work_delayable ext_power_off_work;
+static bool ext_power_is_on = true;
+
+// 倒计时结束时的断电执行函数
+static void ext_power_off_handler(struct k_work *work) {
+    if (ext_power_dev && ext_power_is_on) {
+        ext_power_disable(ext_power_dev);
+        ext_power_is_on = false;
+        LOG_INF("WS2812 idle timeout (30s), ext_power OFF");
+    }
+}
+
 extern void led_process_thread(void *d0, void *d1, void *d2) {
     ARG_UNUSED(d0);
     ARG_UNUSED(d1);
     ARG_UNUSED(d2);
 
     k_work_init_delayable(&indicate_connectivity_work, indicate_connectivity_cb);
-
 #if SHOW_LAYER_CHANGE
     k_work_init_delayable(&layer_indicate_work, indicate_layer_cb);
 #endif
+
+    // 初始化硬件电源开关，并确保开机时通电
+    ext_power_dev = device_get_binding("EXT_POWER");
+    if (ext_power_dev) {
+        k_work_init_delayable(&ext_power_off_work, ext_power_off_handler);
+        ext_power_enable(ext_power_dev);
+        ext_power_is_on = true;
+    }
 
     while (true) {
         struct blink_item blink = {0, 0, 0};
         // 判断当前是否有活动任务：有任何非静态动画，或者有灯是亮着的
         bool is_active = false;
-        #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
-            for (int i = 0; i < CONFIG_RGBLED_WIDGET_LED_COUNT; i++) {
-                if (led_states[i].anim.type != ANIM_STATIC || 
-                    led_states[i].share_end_time > 0) {
-                    is_active = true;
-                    break;
-                }
+#if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
+        for (int i = 0; i < CONFIG_RGBLED_WIDGET_LED_COUNT; i++) {
+            if (led_states[i].anim.type != ANIM_STATIC || 
+                led_states[i].share_end_time > 0) {
+                is_active = true;
+                break;
             }
-        #endif
+        }
+#endif
 
         // 动态心跳核心：忙时 100ms 保证帧率，闲时（黑屏）1000ms 保护电池
         k_timeout_t tick_rate = is_active ? K_MSEC(100) : K_MSEC(1000);
         int result_code = k_msgq_get(&led_msgq, &blink, tick_rate);
+
+        // ================= 异步看门狗电源管理 =================
+        if (ext_power_dev) {
+            // 需要供电的条件：有动画/共享任务，或者队列刚吐出了一个要求亮灯的新消息
+            bool needs_power = is_active || (result_code == 0 && blink.color > 0);
+
+            if (needs_power) {
+                // 1. 踢掉看门狗，取消断电倒计时
+                k_work_cancel_delayable(&ext_power_off_work);
+                
+                // 2. 如果电源关闭，立即开启并预热 10ms 保护灯珠
+                if (!ext_power_is_on) {
+                    ext_power_enable(ext_power_dev);
+                    ext_power_is_on = true;
+                    k_msleep(EXT_POWER_SETTLE_MS);
+                    LOG_INF("ext_power ON (waking up)");
+                }
+            } else {
+                // 如果当前全黑，电源开着，且倒计时还没开始，启动 30 秒断电任务
+                if (ext_power_is_on && k_work_delayable_remaining_get(&ext_power_off_work) == 0) {
+                    k_work_reschedule(&ext_power_off_work, K_MSEC(EXT_POWER_IDLE_TIMEOUT_MS));
+                }
+            }
+        }
+        // ======================================================
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
         check_shared_led_timeouts();
@@ -1460,7 +1511,7 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
                 blink.color, blink.duration_ms, blink.sleep_ms);
             if (blink.duration_ms > 0) {
                 LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color, blink.duration_ms);
-
+            
                 // 1. 闪烁前的分离（制造断层感）
                 if (blink.color == led_current_color && blink.color > 0) {
                     set_rgb_leds(0, CONFIG_RGBLED_WIDGET_INTERVAL_MS);
@@ -1468,7 +1519,7 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 
                 // 2. 点亮指定颜色，并保持 duration_ms 时长
                 set_rgb_leds(blink.color, blink.duration_ms);
-
+                
                 // 3. 【修复常亮】去除原来的宏限制，强制在闪烁结束后恢复底色
                 if (blink.color == led_layer_color && blink.color > 0) {
                     set_rgb_leds(0, CONFIG_RGBLED_WIDGET_INTERVAL_MS);
