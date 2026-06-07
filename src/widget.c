@@ -1453,18 +1453,6 @@ ZMK_LISTENER(led_layer_listener, led_layer_listener_cb);
 ZMK_SUBSCRIPTION(led_layer_listener, zmk_layer_state_changed);
 #endif // SHOW_LAYER_CHANGE
 
-static const struct device *ext_power_dev = NULL;
-static struct k_work_delayable ext_power_off_work;
-static bool ext_power_is_on = true;
-
-// 倒计时结束时的断电执行函数
-static void ext_power_off_handler(struct k_work *work) {
-    if (ext_power_dev && ext_power_is_on) {
-        ext_power_disable(ext_power_dev);
-        ext_power_is_on = false;
-        LOG_INF("WS2812 idle timeout (30s), ext_power OFF");
-    }
-}
 
 extern void led_process_thread(void *d0, void *d1, void *d2) {
     ARG_UNUSED(d0);
