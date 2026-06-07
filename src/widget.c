@@ -757,6 +757,31 @@ static int indicate_layer_enhanced(bool use_shared) {
 
 #endif // CONFIG_RGBLED_WIDGET_ANIMATIONS
 
+static const struct device *ext_power_dev = NULL;
+static struct k_work_delayable ext_power_off_work;
+static bool ext_power_is_on = true;
+
+static void ext_power_off_handler(struct k_work *work) {
+    if (ext_power_dev && ext_power_is_on) {
+        ext_power_disable(ext_power_dev);
+        ext_power_is_on = false;
+        LOG_INF("WS2812 idle timeout (30s), ext_power OFF");
+    }
+}
+
+// 【绝对门卫】：任何向灯带发数据的操作，必须先通过此函数
+static void ensure_ext_power_on(void) {
+    if (ext_power_dev) {
+        k_work_cancel_delayable(&ext_power_off_work); // 踢开看门狗
+        if (!ext_power_is_on) {
+            ext_power_enable(ext_power_dev);
+            ext_power_is_on = true;
+            k_msleep(EXT_POWER_SETTLE_MS); // 阻塞 10ms，等电容充满、芯片复位
+            LOG_INF("ext_power ON (waking up)");
+        }
+    }
+}
+
 // LED Strip Manager Functions
 static void ws2812_strip_init(void) {
     if (!device_is_ready(ws2812_dev)) {
@@ -825,6 +850,7 @@ static int ws2812_set_led(uint8_t led_index, uint8_t color_idx) {
     color_index_to_rgb(color_idx, &led_colors[led_index]);
     led_states[led_index].current_color = color_idx;
     
+    ensure_ext_power_on(); // <--- 关键拦截
     return led_strip_update_rgb(ws2812_dev, led_colors, CONFIG_RGBLED_WIDGET_LED_COUNT);
 }
 
@@ -840,11 +866,13 @@ int ws2812_clear_led(uint8_t led_index) {
     led_states[led_index].is_shared = false;
     led_states[led_index].is_persistent = false;
     led_states[led_index].share_end_time = 0;
-    
+    ensure_ext_power_on(); // <--- 关键拦截（发黑屏指令也需要通电）
+
     return led_strip_update_rgb(ws2812_dev, led_colors, CONFIG_RGBLED_WIDGET_LED_COUNT);
 }
 
 static int ws2812_update_strip(void) {
+    ensure_ext_power_on(); // <--- 关键拦截
     return led_strip_update_rgb(ws2812_dev, led_colors, CONFIG_RGBLED_WIDGET_LED_COUNT);
 }
 
@@ -1458,46 +1486,36 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 
     while (true) {
         struct blink_item blink = {0, 0, 0};
-        // 判断当前是否有活动任务：有任何非静态动画，或者有灯是亮着的
-        bool is_active = false;
+        
+        bool is_active = false;      // 控制 CPU 是否需要 100ms 高刷
+        bool has_lit_led = false;    // 记录是否有灯亮着
+
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
         for (int i = 0; i < CONFIG_RGBLED_WIDGET_LED_COUNT; i++) {
-            if (led_states[i].anim.type != ANIM_STATIC || 
+            if (led_states[i].anim.type != ANIM_STATIC ||
                 led_states[i].share_end_time > 0) {
                 is_active = true;
-                break;
+            }
+            if (led_states[i].current_color != 0) {
+                has_lit_led = true;
             }
         }
 #endif
 
-        // 动态心跳核心：忙时 100ms 保证帧率，闲时（黑屏）1000ms 保护电池
-        k_timeout_t tick_rate = is_active ? K_MSEC(100) : K_MSEC(1000);
-        int result_code = k_msgq_get(&led_msgq, &blink, tick_rate);
-
-        // ================= 异步看门狗电源管理 =================
+        // ===== 看门狗逻辑：无动画且黑屏时，倒数 30 秒断电 =====
         if (ext_power_dev) {
-            // 需要供电的条件：有动画/共享任务，或者队列刚吐出了一个要求亮灯的新消息
-            bool needs_power = is_active || (result_code == 0 && blink.color > 0);
-
-            if (needs_power) {
-                // 1. 踢掉看门狗，取消断电倒计时
+            if (has_lit_led || is_active) {
                 k_work_cancel_delayable(&ext_power_off_work);
-                
-                // 2. 如果电源关闭，立即开启并预热 10ms 保护灯珠
-                if (!ext_power_is_on) {
-                    ext_power_enable(ext_power_dev);
-                    ext_power_is_on = true;
-                    k_msleep(EXT_POWER_SETTLE_MS);
-                    LOG_INF("ext_power ON (waking up)");
-                }
             } else {
-                // 如果当前全黑，电源开着，且倒计时还没开始，启动 30 秒断电任务
                 if (ext_power_is_on && k_work_delayable_remaining_get(&ext_power_off_work) == 0) {
                     k_work_reschedule(&ext_power_off_work, K_MSEC(EXT_POWER_IDLE_TIMEOUT_MS));
                 }
             }
         }
-        // ======================================================
+        // =======================================================
+
+        k_timeout_t tick_rate = is_active ? K_MSEC(100) : K_MSEC(1000);
+        int result_code = k_msgq_get(&led_msgq, &blink, tick_rate);
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
         check_shared_led_timeouts();
