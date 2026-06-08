@@ -42,7 +42,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 // External power control for WS2812 strip (optional, depending on hardware setup)
 #include <drivers/ext_power.h>
 
-#define EXT_POWER_IDLE_TIMEOUT_MS 15000 // 15秒无光自动断电
+#ifndef CONFIG_RGBLED_WIDGET_EXT_POWER_TIMEOUT_MS
+#define CONFIG_RGBLED_WIDGET_EXT_POWER_TIMEOUT_MS 15000 
+#endif
 #define EXT_POWER_SETTLE_MS 10          // 10ms 物理通电预热时间，防止丢帧
 
 // Access CAPSLOCK status
@@ -1496,7 +1498,7 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
                 k_work_cancel_delayable(&ext_power_off_work);
             } else {
                 if (ext_power_is_on && k_work_delayable_remaining_get(&ext_power_off_work) == 0) {
-                    k_work_reschedule(&ext_power_off_work, K_MSEC(EXT_POWER_IDLE_TIMEOUT_MS));
+                    k_work_reschedule(&ext_power_off_work, K_MSEC(CONFIG_RGBLED_WIDGET_EXT_POWER_TIMEOUT_MS));
                 }
             }
         }
